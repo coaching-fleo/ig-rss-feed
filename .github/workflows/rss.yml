@@ -20,18 +20,15 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install instagrapi feedgen
+        run: pip install requests feedgen
       
       - name: Run scraper
-        env:
-          INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
-          INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
         run: python scraper.py
       
       - name: Commit and push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add -A
+          git add feed.xml
           git commit -m "Update feed" || exit 0
           git push
