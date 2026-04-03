@@ -2,8 +2,8 @@ name: Generate Instagram RSS Feed
 
 on:
   schedule:
-    - cron: '0 * * * *'  # ogni ora
-  workflow_dispatch:
+    - cron: '0 * * * *'  # Ogni ora
+  workflow_dispatch:     # Esecuzione manuale
 
 jobs:
   scrape:
@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install requests feedgen
+        run: pip install requests
       
       - name: Run scraper
         run: python scraper.py
