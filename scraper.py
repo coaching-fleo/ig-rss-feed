@@ -4,7 +4,7 @@ import datetime
 
 # 1. Impostazioni
 L = instaloader.Instaloader(quiet=True)
-PROFILE = "NOME_UTENTE_QUI" # INSERISCI QUI L'ACCOUNT SENZA LA @
+PROFILE = "federico_leo88"
 
 # 2. Inizializza il Feed RSS
 fg = FeedGenerator()
