@@ -3,6 +3,7 @@ from feedgen.feed import FeedGenerator
 import datetime
 import json
 import re
+import time
 
 PROFILE = "federico_leo88"
 
@@ -14,127 +15,119 @@ fg.description(f'Ultimi post di {PROFILE} su Instagram')
 try:
     print(f"📥 Recupero profilo {PROFILE}...")
     
-    # 1. Scarica la pagina Instagram (pubblica)
-    url = f"https://www.instagram.com/{PROFILE}/"
+    # Headers realistici
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1',
+        'Accept-Language': 'it-IT,it;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     }
     
-    response = requests.get(url, headers=headers, timeout=10)
+    # Prova 1: Scarica il profilo come API GraphQL
+    print("  🔍 Tentativo 1: GraphQL API...")
+    api_url = f"https://www.instagram.com/api/v1/users/web_profile_info/"
+    params = {"username": PROFILE}
+    
+    session = requests.Session()
+    session.headers.update(headers)
+    
+    # Instagram richiede un CSRF token
+    csrf_response = session.get(f"https://www.instagram.com/", headers=headers)
+    csrf_token = csrf_response.cookies.get('csrftoken', '')
+    
+    api_headers = headers.copy()
+    api_headers['X-CSRFToken'] = csrf_token
+    api_headers['X-Requested-With'] = 'XMLHttpRequest'
+    
+    response = session.get(api_url, params=params, headers=api_headers, timeout=10)
     response.raise_for_status()
     
-    print("✅ Pagina scaricata!")
+    data = response.json()
     
-    # 2. Estrai i dati JSON dal HTML
-    # Instagram mette i dati in una variabile JavaScript
-    match = re.search(r'window\._sharedData\s*=\s*({.*?});', response.text)
-    
-    if not match:
-        # Prova pattern alternativo (Instagram cambia spesso)
-        match = re.search(r'<script type="application/ld\+json">(.*?)</script>', response.text)
-    
-    if not match:
-        raise Exception("❌ Non riesco a trovare i dati Instagram nella pagina. Instagram potrebbe aver cambiato il formato.")
-    
-    data = json.loads(match.group(1))
-    
-    # 3. Naviga nella struttura JSON
-    try:
-        user = data['entry_data']['ProfilePage'][0]['graphql']['user']
-        profile_name = user['full_name']
-        follower_count = user['edge_followed_by']['count']
-        print(f"✅ Profilo trovato: {profile_name} ({follower_count} follower)")
-    except KeyError:
-        print("⚠️ Struttura JSON inaspettata, provo comunque a estrarre i post...")
-        user = data.get('graphql', {}).get('user', {})
-    
-    # 4. Estrai i post
-    try:
-        edges = user['edge_owner_to_timeline_media']['edges']
-    except KeyError:
-        edges = user.get('edge_owner_to_timeline_media', {}).get('edges', [])
-    
-    if not edges:
-        raise Exception("❌ Nessun post trovato. Il profilo potrebbe essere privato.")
-    
-    # 5. Aggiungi i post al feed (max 10)
-    post_count = 0
-    for edge in edges[:10]:
-        try:
-            node = edge['node']
+    if 'user' in data:
+        print("✅ Accesso via API riuscito!")
+        user = data['user']
+        profile_name = user.get('full_name', PROFILE)
+        follower_count = user.get('follower_count', 0)
+        print(f"✅ Profilo: {profile_name} ({follower_count} follower)")
+        
+        # Estrai i media
+        medias = user.get('recent_posts', [])
+        if not medias:
+            medias = user.get('media', [])
+        
+        post_count = 0
+        
+        if medias:
+            print(f"📊 Trovati {len(medias)} post")
             
-            post_id = node.get('id')
-            shortcode = node.get('shortcode')
-            caption_text = ""
-            
-            # Estrai il caption se disponibile
-            if node.get('edge_media_to_caption'):
-                captions = node['edge_media_to_caption'].get('edges', [])
-                if captions:
-                    caption_text = captions[0]['node'].get('text', '')
-            
-            timestamp = node.get('taken_at_timestamp')
-            if timestamp:
-                dt = datetime.datetime.fromtimestamp(int(timestamp), tz=datetime.timezone.utc)
-            else:
-                dt = datetime.datetime.now(datetime.timezone.utc)
-            
-            # Prendi l'immagine
-            image_url = node.get('display_url', '')
-            
-            # Se è un carousel, prendi il primo media
-            if not image_url and node.get('edge_sidecar_to_children'):
-                children = node['edge_sidecar_to_children'].get('edges', [])
-                if children:
-                    image_url = children[0]['node'].get('display_url', '')
-            
-            # Crea l'entry
-            fe = fg.add_entry()
-            fe.id(post_id)
-            fe.title(f'Post del {dt.strftime("%d/%m/%Y %H:%M")}')
-            fe.link(href=f'https://instagram.com/p/{shortcode}')
-            
-            # Stats
-            likes = node.get('edge_liked_by', {}).get('count', 0)
-            comments = node.get('edge_media_to_comment', {}).get('count', 0)
-            
-            # Descrizione con immagine
-            if image_url:
-                description_html = f'''
-                <img src="{image_url}" alt="Post image" style="max-width: 500px; display: block; margin: 10px 0;"/>
-                <p><strong>❤️ {likes} | 💬 {comments}</strong></p>
-                <p>{caption_text if caption_text else "[Nessun testo]"}</p>
-                '''
-            else:
-                description_html = f'<p>{caption_text if caption_text else "[Nessun testo]"}</p>'
-            
-            fe.description(description_html)
-            fe.pubDate(dt)
-            
-            post_count += 1
-            print(f"  ✓ Post aggiunto: {shortcode}")
-            
-        except Exception as e:
-            print(f"  ⚠️ Errore nel post: {e}")
-            continue
+            for media in medias[:10]:
+                try:
+                    post_id = media.get('id')
+                    shortcode = media.get('code')
+                    caption = media.get('caption', {})
+                    caption_text = caption.get('text', '') if isinstance(caption, dict) else str(caption)
+                    
+                    timestamp = media.get('taken_at')
+                    if timestamp:
+                        if isinstance(timestamp, int):
+                            dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+                        else:
+                            dt = datetime.datetime.fromisoformat(str(timestamp).replace('Z', '+00:00'))
+                    else:
+                        dt = datetime.datetime.now(datetime.timezone.utc)
+                    
+                    # Immagine
+                    image_url = media.get('image_versions2', {}).get('candidates', [{}])[0].get('url', '')
+                    if not image_url:
+                        image_url = media.get('display_url', '')
+                    
+                    likes = media.get('like_count', 0)
+                    comments = media.get('comment_count', 0)
+                    
+                    # Crea entry
+                    fe = fg.add_entry()
+                    fe.id(post_id)
+                    fe.title(f'Post del {dt.strftime("%d/%m/%Y %H:%M")}')
+                    fe.link(href=f'https://instagram.com/p/{shortcode}')
+                    
+                    if image_url:
+                        description_html = f'''
+                        <img src="{image_url}" alt="Post" style="max-width: 500px; display: block; margin: 10px 0;"/>
+                        <p><strong>❤️ {likes} | 💬 {comments}</strong></p>
+                        <p>{caption_text if caption_text else "[Nessun testo]"}</p>
+                        '''
+                    else:
+                        description_html = f'<p>{caption_text if caption_text else "[Nessun testo]"}</p>'
+                    
+                    fe.description(description_html)
+                    fe.pubDate(dt)
+                    
+                    post_count += 1
+                    print(f"  ✓ Post aggiunto: {shortcode}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Errore nel post: {e}")
+                    continue
+        
+        print(f"\n✅ {post_count} post aggiunti al feed!")
     
-    print(f"\n✅ {post_count} post aggiunti al feed!")
-    
-except requests.exceptions.RequestException as e:
-    print(f"❌ Errore di connessione: {e}")
-    
-except json.JSONDecodeError as e:
-    print(f"❌ Errore nel parsing JSON: {e}")
-    print("💡 Instagram potrebbe aver cambiato il formato della pagina")
-    
+    else:
+        raise Exception("Risposta API inaspettata")
+
+except requests.exceptions.HTTPError as e:
+    if e.response.status_code == 401:
+        print(f"❌ Non autorizzato. Prova con un profilo pubblico.")
+    else:
+        print(f"❌ Errore HTTP {e.response.status_code}: {e}")
+        
 except Exception as e:
     print(f"❌ Errore: {e}")
     import traceback
     traceback.print_exc()
 
-# 6. Salva il file
+# Salva il file
 try:
     fg.rss_file('feed.xml')
     print("💾 Feed salvato in feed.xml")
 except Exception as e:
-    print(f"❌ Errore nel salvataggio del feed: {e}")
+    print(f"❌ Errore nel salvataggio: {e}")
