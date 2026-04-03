@@ -1,37 +1,35 @@
-name: Generate Instagram RSS
+name: Generate Instagram RSS Feed
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Avvia lo script ogni giorno alle 8:00 UTC
-  workflow_dispatch: # Questo ti permette di cliccare un pulsante per avviarlo manualmente
-
-permissions:
-  contents: write
+    - cron: '0 * * * *'  # ogni ora
+  workflow_dispatch:     # permette esecuzione manuale
 
 jobs:
-  build:
+  scrape:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
-      run: |
-        pip install instaloader feedgen
-
-    - name: Run scraper
-      run: python scraper.py
-
-    - name: Commit and push feed.xml
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add feed.xml
-        git commit -m "Aggiornamento quotidiano feed RSS" || echo "Nessuna modifica da salvare"
-        git push
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install instaloader feedgen
+      
+      - name: Run scraper
+        run: python scraper.py
+        env:
+          INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
+          INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
+      
+      - name: Commit and push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add feed.xml
+          git commit -m "Update feed" || exit 0
+          git push
