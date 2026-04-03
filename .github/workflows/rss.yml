@@ -3,11 +3,14 @@ name: Generate Instagram RSS Feed
 on:
   schedule:
     - cron: '0 * * * *'  # ogni ora
-  workflow_dispatch:     # permette esecuzione manuale
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
     steps:
       - uses: actions/checkout@v4
       
@@ -17,19 +20,18 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: |
-          pip install instaloader feedgen
+        run: pip install instagrapi feedgen
       
       - name: Run scraper
-        run: python scraper.py
         env:
           INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
           INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
+        run: python scraper.py
       
       - name: Commit and push
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add feed.xml
+          git add -A
           git commit -m "Update feed" || exit 0
           git push
